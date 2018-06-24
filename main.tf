@@ -2,27 +2,55 @@ provider "aws" {
 	region = "us-east-1"
 	}
 
-resource "aws_instance" "nginix" {
-	ami = "ami-40d28157"
+variable "server_port" {
+	description = "The port the server will use for HTTP requests"
+	default = 8080
+}
+
+resource "aws_launch_configuration" "my_nginx" {
+	image_id = "ami-i2d39803a"
 	instance_type = "t2.micro"
 
-	tags {
-		Name = "my_nginix"
-	}
+	security_groups = ["${aws_security_group.my_nginx_sg.id}"]
 
 	user_data = <<-EOF
+		#!/bin/bash
 		echo "Hello, World" > index.html
-		nohup busybox httpd -f -p 8080 &
+		nohup busybox httpd -f -p "${var.server_port}" &
 		EOF
+
+	lifecycle {
+		create_before_destroy = true
+	}
+	
 }
-resource "aws_security_group" "nginix_sg" {
-	name = "nginix_sg"
+
+resource "aws_security_group" "my_nginx_sg" {
+	name = "my_nginx_sg"
 	
 	ingress {
-		from_port = 8080
-		to_port = 8080
+		from_port = "${var.server_port}"
+		to_port = "${var.server_port}"
 		protocol = "tcp"
 		cidr_blocks = ["0.0.0.0/0"]
 		}
+	lifecycle {
+	create_before_destroy = true
+	}
+}
 
+data "aws_availability_zones" "all" {}
+
+resource "aws_autoscaling_group" "my_nginx_asg" {
+        launch_configuration = "${aws_launch_configuration.my_nginx.id}"
+        availability_zones = ["${data.aws_availability_zones.all.names}"]
+
+        min_size=2
+        max_size=10
+
+        tag {
+                key = "Name"
+                value = "terraform-asg-my_nginx"
+                propagate_at_launch = true
+        }
 }
